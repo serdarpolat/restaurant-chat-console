@@ -29,7 +29,10 @@ async function send() {
   sending.value = true
 
   messages.value.push({ role: 'user', content: text })
-  const assistantMsg: Message = { role: 'assistant', content: '', tools: [] }
+  // reactive(), not a plain object: we mutate assistantMsg.* after pushing it into
+  // messages (as each SSE event arrives), and Vue only tracks mutations made through the
+  // reactive proxy — mutating the plain reference pushed into a ref([]) array is inert.
+  const assistantMsg = reactive<Message>({ role: 'assistant', content: '', tools: [] })
   messages.value.push(assistantMsg)
   scrollToBottom()
 
@@ -43,6 +46,18 @@ async function send() {
       if (call) {
         call.ok = ok
         call.summary = summary
+      } else if (!ok) {
+        // A failing tool_result with no matching tool_call is a stream-level failure
+        // (LLM/MCP error, step-limit hit — backend's "_system" name) rather than an
+        // actual tool outcome. Surface it as an error instead of dropping it silently,
+        // or the ticket is left stuck on "···" forever with no visible cause.
+        // The in-progress assistant ticket never got a tool card or an answer, so drop
+        // it rather than leave an empty "···" card sitting above the error.
+        if (assistantMsg.content === '' && assistantMsg.tools!.length === 0) {
+          const idx = messages.value.indexOf(assistantMsg)
+          if (idx !== -1) messages.value.splice(idx, 1)
+        }
+        messages.value.push({ role: 'system-error', content: summary })
       }
       scrollToBottom()
     },
@@ -62,17 +77,21 @@ async function send() {
 </script>
 
 <template>
-  <div class="page">
+  <div class="shell">
     <header>
-      <h1>restaurant-chat-console</h1>
-      <span class="status" :class="{ bad: !health }">
-        {{ health ? `backend ok (v${health.version})` : 'backend unreachable' }}
-      </span>
+      <div class="brand">
+        <span class="led" :class="{ off: !health }" />
+        <span class="name">restaurant-chat-console</span>
+      </div>
+      <div class="status">
+        <span>{{ health ? 'online' : 'offline' }}</span>
+        <span class="version" v-if="health">v{{ health.version }}</span>
+      </div>
     </header>
 
-    <main ref="listEl" class="messages">
+    <main ref="listEl" class="feed">
       <p v-if="!messages.length" class="hint">
-        Ask about sales, inventory, or an order — e.g. "en çok satan 5 ürün ne?"
+        Satış, stok ya da sipariş sor — örn. "en çok satan 5 ürün ne?"
       </p>
       <ChatMessage v-for="(m, i) in messages" :key="i" :message="m" />
     </main>
@@ -91,66 +110,111 @@ async function send() {
 </template>
 
 <style scoped>
-.page {
+.shell {
   display: flex;
   flex-direction: column;
-  height: 100vh;
-  max-width: 40rem;
-  margin: 0 auto;
-  font-family: system-ui, sans-serif;
+  height: 100dvh;
 }
+
 header {
+  flex: none;
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
-  padding: 1rem;
-  border-bottom: 1px solid #e5e7eb;
+  padding: 0.85rem 1.25rem;
+  background: var(--bg-raised);
+  border-bottom: 1px solid var(--line-dark);
 }
-h1 {
-  font-size: 1.1rem;
-  margin: 0;
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+.led {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  background: var(--sage);
+  box-shadow: 0 0 0.4rem var(--sage);
+}
+.led.off {
+  background: var(--brick);
+  box-shadow: 0 0 0.4rem var(--brick);
+}
+.name {
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }
 .status {
-  font-size: 0.8rem;
-  color: #15803d;
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+  color: var(--cream-soft);
 }
-.status.bad {
-  color: #b91c1c;
+.version {
+  opacity: 0.6;
 }
-.messages {
+
+.feed {
   flex: 1;
   overflow-y: auto;
-  padding: 1rem;
+  padding: 1.5rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  max-width: 42rem;
+  width: 100%;
+  margin: 0 auto;
 }
 .hint {
-  color: #9ca3af;
+  color: var(--cream-soft);
   text-align: center;
-  margin-top: 2rem;
+  margin: auto 0;
+  max-width: 24rem;
+  align-self: center;
+  line-height: 1.5;
 }
+
 .composer {
+  flex: none;
   display: flex;
-  gap: 0.5rem;
-  padding: 1rem;
-  border-top: 1px solid #e5e7eb;
+  gap: 0.6rem;
+  padding: 1rem 1.25rem;
+  background: var(--bg-raised);
+  border-top: 1px solid var(--line-dark);
+  max-width: 42rem;
+  width: 100%;
+  margin: 0 auto;
 }
 .composer input {
   flex: 1;
-  padding: 0.6rem 0.8rem;
-  border: 1px solid #d1d5db;
+  padding: 0.65rem 0.9rem;
+  border: 1px solid var(--line-dark);
   border-radius: 0.5rem;
-  font-size: 1rem;
+  background: var(--bg);
+  color: var(--cream);
+  font-size: 0.95rem;
+  font-family: inherit;
+}
+.composer input::placeholder {
+  color: var(--cream-soft);
 }
 .composer button {
-  padding: 0.6rem 1.2rem;
+  padding: 0.65rem 1.3rem;
   border: none;
   border-radius: 0.5rem;
-  background: #2563eb;
-  color: white;
-  font-size: 1rem;
+  background: var(--flame);
+  color: #241a0f;
+  font-weight: 600;
+  font-size: 0.95rem;
   cursor: pointer;
 }
+.composer button:hover:not(:disabled) {
+  background: var(--flame-deep);
+}
 .composer button:disabled {
-  background: #93c5fd;
+  background: var(--bg);
+  color: var(--cream-soft);
   cursor: default;
 }
 </style>

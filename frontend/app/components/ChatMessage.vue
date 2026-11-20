@@ -12,10 +12,15 @@ defineProps<{ message: Message }>()
 
 <template>
   <div class="row" :class="message.role">
-    <div class="bubble">
+    <div v-if="message.role === 'user'" class="said">{{ message.content }}</div>
+
+    <div v-else-if="message.role === 'system-error'" class="error">{{ message.content }}</div>
+
+    <div v-else class="ticket">
       <ToolCallCard v-for="(call, i) in message.tools" :key="i" :call="call" />
-      <p v-if="message.content" class="text">{{ message.content }}</p>
-      <p v-else-if="!message.tools?.length" class="text thinking">…</p>
+      <div v-if="message.tools?.length && message.content" class="rule" />
+      <p v-if="message.content" class="answer">{{ message.content }}</p>
+      <p v-else-if="!message.tools?.length" class="answer waiting">···</p>
     </div>
   </div>
 </template>
@@ -23,7 +28,7 @@ defineProps<{ message: Message }>()
 <style scoped>
 .row {
   display: flex;
-  margin: 0.5rem 0;
+  margin: 0.6rem 0;
 }
 .row.user {
   justify-content: flex-end;
@@ -32,30 +37,56 @@ defineProps<{ message: Message }>()
 .row.system-error {
   justify-content: flex-start;
 }
-.bubble {
+
+/* user: spoken, not printed — a simple warm pill, no ticket framing */
+.said {
   max-width: 80%;
-  border-radius: 0.75rem;
-  padding: 0.6rem 0.9rem;
+  background: var(--flame);
+  color: #241a0f;
+  font-weight: 500;
+  border-radius: 1.1rem 1.1rem 0.2rem 1.1rem;
+  padding: 0.55rem 0.95rem;
 }
-.user .bubble {
-  background: #2563eb;
-  color: white;
+
+/* assistant: printed — an order-ticket card, perforation rule, monospace line items */
+.ticket {
+  max-width: 85%;
+  background: var(--paper);
+  color: var(--ink);
+  border-radius: 0.3rem;
+  padding: 0.85rem 1rem;
+  position: relative;
 }
-.assistant .bubble {
-  background: #f3f4f6;
-  color: #111827;
+.ticket::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 0;
+  border-top: 2px dashed var(--line-paper);
+  margin: 0 0.6rem;
 }
-.system-error .bubble {
-  background: #fef2f2;
-  color: #991b1b;
-  border: 1px solid #fca5a5;
+.rule {
+  border-top: 1px dashed var(--line-paper);
+  margin: 0.5rem 0;
 }
-.text {
+.answer {
   margin: 0;
   white-space: pre-wrap;
   word-break: break-word;
+  line-height: 1.5;
 }
-.thinking {
-  color: #9ca3af;
+.answer.waiting {
+  color: var(--ink-soft);
+  letter-spacing: 0.15em;
+}
+
+.error {
+  max-width: 85%;
+  background: rgba(193, 68, 58, 0.14);
+  color: #f3b9b2;
+  border: 1px solid rgba(193, 68, 58, 0.4);
+  border-radius: 0.5rem;
+  padding: 0.55rem 0.85rem;
+  font-size: 0.9rem;
 }
 </style>

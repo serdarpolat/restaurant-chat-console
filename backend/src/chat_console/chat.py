@@ -14,6 +14,7 @@ decision 2) — lost on backend restart; persistence is out of scope for now.
 from __future__ import annotations
 
 import json
+import logging
 from collections import defaultdict
 from typing import Any
 
@@ -26,6 +27,7 @@ from chat_console.mcp_client import McpClient
 from chat_console.settings import get_settings
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
+logger = logging.getLogger(__name__)
 
 MAX_STEPS = 10
 SUMMARY_MAX_CHARS = 400
@@ -165,7 +167,11 @@ async def post_chat(req: ChatRequest) -> EventSourceResponse:
                             "summary": f"no final answer after {MAX_STEPS} steps",
                         },
                     )
-        except Exception as exc:  # noqa: BLE001 - one bad turn must not crash the stream
+        except Exception as exc:  # one bad turn must not crash the stream; logged below
+            # Also log server-side: the SSE event is the only other place this reaches,
+            # and a dropped/stale frontend connection shouldn't mean the error vanishes
+            # entirely.
+            logger.exception("chat turn failed (conversation_id=%s)", req.conversation_id)
             yield _sse(
                 "tool_result",
                 {"name": "_system", "ok": False, "summary": f"{type(exc).__name__}: {exc}"},

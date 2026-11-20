@@ -1,7 +1,8 @@
 """FastAPI entrypoint.
 
-M0: app factory + CORS + GET /health. The /api/chat routes described in
-PROJECT6_SCOPE.md section 6 land in M1 (chat.py) and M2 (approval flow).
+M0: app factory + CORS + GET /health. M1 adds POST /api/chat (chat.py) — a single-turn
+SSE chat stream backed by a real MCP client and a real LM Studio client. The approval
+relay (POST /api/chat/approve) described in PROJECT6_SCOPE.md section 6 lands in M2.
 """
 
 from __future__ import annotations
@@ -9,6 +10,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from chat_console import chat
 from chat_console.settings import get_settings
 
 __version__ = "0.1.0"
@@ -31,6 +33,8 @@ def create_app() -> FastAPI:
     @app.get("/health")
     def health() -> dict:
         return {"status": "ok", "version": __version__}
+
+    app.include_router(chat.router)
 
     return app
 

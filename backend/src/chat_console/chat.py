@@ -1,11 +1,18 @@
 """POST /api/chat — a single chat turn as an SSE stream.
 
 M1 scope: one user message in, one assistant answer out, with real tool calls against
-restaurant-mcp-server in between. No approval relay yet (M2) and no charts yet (M3): a
-confirmation-gated tool (void_order_item, cancel_order, pay_order, record_stock_purchase)
-just returns its preview text as an ordinary tool result here — nothing is approved on the
-model's behalf, nothing executes, exactly as if no one had answered the preview yet. M2
-turns that preview into a real approval_needed event the frontend can act on.
+restaurant-mcp-server in between. Chart generation (M3, section 5) has been pulled forward
+ahead of the approval relay: a successful result from one of charts.CHARTABLE_TOOLS is
+turned into a Chart.js spec deterministically, in this module, from the tool's own
+structured JSON result — never from the model's text. The same applies to tables
+(tables.TABLEABLE_TOOLS): a report tool's result is a real HTML table regardless of
+whether the model's own prose happens to format one — the same question asked two ways
+got a markdown table once and a plain list the next, from the same small model, so the
+table can't be left up to it. No approval relay yet (M2): a confirmation-gated tool
+(void_order_item, cancel_order, pay_order, record_stock_purchase) just returns its preview
+text as an ordinary tool result here — nothing is approved on the model's behalf, nothing
+executes, exactly as if no one had answered the preview yet. M2 turns that preview into a
+real approval_needed event the frontend can act on.
 
 Conversation history is in-memory, keyed by conversation_id (PROJECT6_SCOPE.md section 9,
 decision 2) — lost on backend restart; persistence is out of scope for now.
@@ -22,9 +29,11 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
+from chat_console.charts import CHARTABLE_TOOLS, chart_for
 from chat_console.llm_client import LlmClient, visible_text
 from chat_console.mcp_client import McpClient
 from chat_console.settings import get_settings
+from chat_console.tables import TABLEABLE_TOOLS, table_for
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 logger = logging.getLogger(__name__)
@@ -41,6 +50,9 @@ EVAL_PROTOCOL = (
     "Once a tool result comes back, it is already in hand — write the real answer using\n"
     "that data right away in the same turn. Never end with a placeholder like 'please\n"
     "wait' or 'fetching the data', and never promise an answer you have not given yet.\n"
+    "If the user gave no explicit date and the default range (today) comes back empty,\n"
+    "widen it yourself (e.g. the last 7 days) before answering — say which range you\n"
+    "ended up using. Only tell the user nothing was found after trying a wider range.\n"
 )
 
 
@@ -154,6 +166,22 @@ async def post_chat(req: ChatRequest) -> EventSourceResponse:
                                 "summary": _summarize(result["text"]),
                             },
                         )
+                        if not result["is_error"] and (
+                            name in CHARTABLE_TOOLS or name in TABLEABLE_TOOLS
+                        ):
+                            try:
+                                parsed = json.loads(result["text"])
+                            except json.JSONDecodeError:
+                                parsed = None
+                            if isinstance(parsed, dict):
+                                if name in CHARTABLE_TOOLS:
+                                    spec = chart_for(name, args, parsed)
+                                    if spec is not None:
+                                        yield _sse("chart", {"tool": name, "spec": spec})
+                                if name in TABLEABLE_TOOLS:
+                                    table = table_for(name, parsed)
+                                    if table is not None:
+                                        yield _sse("table", {"tool": name, "table": table})
                         messages.append(
                             {
                                 "role": "tool",

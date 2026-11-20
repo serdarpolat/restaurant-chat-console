@@ -1,92 +1,150 @@
 <script setup lang="ts">
+import type { ChartSpec } from './ChartBlock.vue'
 import type { ToolCall } from './ToolCallCard.vue'
+
+export interface TableSpec {
+  columns: string[]
+  rows: (string | number)[][]
+}
 
 export interface Message {
   role: 'user' | 'assistant' | 'system-error'
   content: string
   tools?: ToolCall[]
+  charts?: { tool: string; spec: ChartSpec }[]
+  tables?: { tool: string; table: TableSpec }[]
 }
 
 defineProps<{ message: Message }>()
 </script>
 
 <template>
-  <div class="row" :class="message.role">
-    <div v-if="message.role === 'user'" class="said">{{ message.content }}</div>
-
-    <div v-else-if="message.role === 'system-error'" class="error">{{ message.content }}</div>
-
-    <div v-else class="ticket">
-      <ToolCallCard v-for="(call, i) in message.tools" :key="i" :call="call" />
-      <div v-if="message.tools?.length && message.content" class="rule" />
-      <p v-if="message.content" class="answer">{{ message.content }}</p>
-      <p v-else-if="!message.tools?.length" class="answer waiting">···</p>
+  <div class="flex" :class="message.role === 'user' ? 'justify-end' : 'justify-start'">
+    <div
+      v-if="message.role === 'user'"
+      class="max-w-[80%] rounded-2xl rounded-br-md bg-primary-500 px-4 py-2.5 text-white shadow-sm"
+    >
+      {{ message.content }}
     </div>
+
+    <UAlert
+      v-else-if="message.role === 'system-error'"
+      color="error"
+      variant="subtle"
+      icon="i-lucide-triangle-alert"
+      :title="message.content"
+      class="max-w-[85%]"
+    />
+
+    <UCard v-else class="max-w-[85%] shadow-sm" :ui="{ body: 'p-4 sm:p-4' }">
+      <div v-if="message.tools?.length" class="space-y-2">
+        <ToolCallCard v-for="(call, i) in message.tools" :key="i" :call="call" />
+      </div>
+      <div v-if="message.tools?.length" class="my-3 border-t border-neutral-100 dark:border-neutral-800" />
+      <!-- eslint-disable-next-line vue/no-v-html -- sanitized by useMarkdown's DOMPurify pass -->
+      <div
+        v-if="message.content"
+        class="markdown-answer leading-relaxed text-neutral-700 dark:text-neutral-200"
+        v-html="renderMarkdown(message.content)"
+      />
+      <div v-else class="flex gap-1 py-0.5">
+        <span class="size-1.5 animate-bounce rounded-full bg-neutral-300 [animation-delay:-0.3s] dark:bg-neutral-600" />
+        <span class="size-1.5 animate-bounce rounded-full bg-neutral-300 [animation-delay:-0.15s] dark:bg-neutral-600" />
+        <span class="size-1.5 animate-bounce rounded-full bg-neutral-300 dark:bg-neutral-600" />
+      </div>
+      <!-- Deterministic, backend-built tables (chat_console/tables.py) — generated from
+           the tool's own structured result, not from whether the model's prose happened
+           to include a markdown table this time. -->
+      <div v-if="message.tables?.length" class="markdown-answer mt-3 space-y-3">
+        <div v-for="(t, i) in message.tables" :key="i" class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th v-for="col in t.table.columns" :key="col">{{ col }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(row, ri) in t.table.rows" :key="ri">
+                <td v-for="(cell, ci) in row" :key="ci">{{ cell }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div v-if="message.charts?.length" class="mt-3 space-y-3">
+        <ChartBlock v-for="(c, i) in message.charts" :key="i" :spec="c.spec" />
+      </div>
+    </UCard>
   </div>
 </template>
 
 <style scoped>
-.row {
-  display: flex;
-  margin: 0.6rem 0;
-}
-.row.user {
-  justify-content: flex-end;
-}
-.row.assistant,
-.row.system-error {
-  justify-content: flex-start;
-}
-
-/* user: spoken, not printed — a simple warm pill, no ticket framing */
-.said {
-  max-width: 80%;
-  background: var(--flame);
-  color: #241a0f;
-  font-weight: 500;
-  border-radius: 1.1rem 1.1rem 0.2rem 1.1rem;
-  padding: 0.55rem 0.95rem;
-}
-
-/* assistant: printed — an order-ticket card, perforation rule, monospace line items */
-.ticket {
-  max-width: 85%;
-  background: var(--paper);
-  color: var(--ink);
-  border-radius: 0.3rem;
-  padding: 0.85rem 1rem;
-  position: relative;
-}
-.ticket::before {
-  content: '';
-  position: absolute;
-  inset: 0 0 auto 0;
-  height: 0;
-  border-top: 2px dashed var(--line-paper);
-  margin: 0 0.6rem;
-}
-.rule {
-  border-top: 1px dashed var(--line-paper);
-  margin: 0.5rem 0;
-}
-.answer {
+/* markdown-it's output is plain tags (table/th/td/strong/ul/code/a) with no classes of its
+   own to hook — style them directly rather than post-processing the HTML to inject
+   Tailwind classes into every cell. */
+.markdown-answer :deep(p) {
   margin: 0;
-  white-space: pre-wrap;
-  word-break: break-word;
-  line-height: 1.5;
 }
-.answer.waiting {
-  color: var(--ink-soft);
-  letter-spacing: 0.15em;
+.markdown-answer :deep(p + p) {
+  margin-top: 0.75em;
 }
-
-.error {
-  max-width: 85%;
-  background: rgba(193, 68, 58, 0.14);
-  color: #f3b9b2;
-  border: 1px solid rgba(193, 68, 58, 0.4);
+.markdown-answer :deep(strong) {
+  font-weight: 600;
+  color: inherit;
+}
+.markdown-answer :deep(ul),
+.markdown-answer :deep(ol) {
+  margin: 0.5em 0;
+  padding-inline-start: 1.25em;
+}
+.markdown-answer :deep(li + li) {
+  margin-top: 0.25em;
+}
+.markdown-answer :deep(code) {
+  border-radius: 0.25rem;
+  background: rgb(0 0 0 / 6%);
+  padding: 0.1em 0.35em;
+  font-size: 0.9em;
+}
+:global(.dark) .markdown-answer :deep(code) {
+  background: rgb(255 255 255 / 10%);
+}
+.markdown-answer :deep(a) {
+  color: var(--ui-primary, #8b5cf6);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.markdown-answer :deep(.table-scroll) {
+  margin: 0.75em 0;
+  overflow-x: auto;
   border-radius: 0.5rem;
-  padding: 0.55rem 0.85rem;
-  font-size: 0.9rem;
+}
+.markdown-answer :deep(table) {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9em;
+}
+.markdown-answer :deep(th),
+.markdown-answer :deep(td) {
+  border: 1px solid rgb(0 0 0 / 8%);
+  padding: 0.45em 0.7em;
+  text-align: left;
+}
+.markdown-answer :deep(th) {
+  background: rgb(0 0 0 / 4%);
+  font-weight: 600;
+}
+.markdown-answer :deep(tr:nth-child(even) td) {
+  background: rgb(0 0 0 / 2%);
+}
+:global(.dark) .markdown-answer :deep(th),
+:global(.dark) .markdown-answer :deep(td) {
+  border-color: rgb(255 255 255 / 10%);
+}
+:global(.dark) .markdown-answer :deep(th) {
+  background: rgb(255 255 255 / 6%);
+}
+:global(.dark) .markdown-answer :deep(tr:nth-child(even) td) {
+  background: rgb(255 255 255 / 3%);
 }
 </style>

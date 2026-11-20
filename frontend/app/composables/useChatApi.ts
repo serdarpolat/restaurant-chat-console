@@ -9,6 +9,8 @@
 export interface ChatEventHandlers {
   onToolCall?: (name: string, args: Record<string, unknown>) => void
   onToolResult?: (name: string, ok: boolean, summary: string) => void
+  onChart?: (tool: string, spec: Record<string, unknown>) => void
+  onTable?: (tool: string, table: { columns: string[]; rows: (string | number)[][] }) => void
   onToken?: (text: string) => void
   onError?: (message: string) => void
   onDone?: () => void
@@ -92,6 +94,15 @@ function dispatchEvent(rawEvent: string, handlers: ChatEventHandlers): void {
       break
     case 'tool_result':
       handlers.onToolResult?.(parsed.name as string, parsed.ok as boolean, parsed.summary as string)
+      break
+    case 'chart':
+      handlers.onChart?.(parsed.tool as string, parsed.spec as Record<string, unknown>)
+      break
+    case 'table':
+      handlers.onTable?.(
+        parsed.tool as string,
+        parsed.table as { columns: string[]; rows: (string | number)[][] },
+      )
       break
     case 'token':
       handlers.onToken?.(parsed.text as string)

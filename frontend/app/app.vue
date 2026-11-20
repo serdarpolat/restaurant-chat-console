@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import type { Message } from './components/ChatMessage.vue'
+import type { ChartSpec } from './components/ChartBlock.vue'
+import type { Message, TableSpec } from './components/ChatMessage.vue'
 
 // M1: a minimal chat page over POST /api/chat's SSE stream. No approval cards or charts
 // yet (M2/M3) — a confirmation-gated tool just shows up as an ordinary tool result here.
@@ -11,10 +12,24 @@ const messages = ref<Message[]>([])
 const draft = ref('')
 const sending = ref(false)
 const listEl = ref<HTMLElement | null>(null)
+const composerEl = ref<{ focus: () => void } | null>(null)
+
+function focusComposer() {
+  nextTick(() => composerEl.value?.focus())
+}
 
 const { data: health } = await useFetch<{ status: string; version: string }>('/health', {
   baseURL: apiBase,
 })
+
+// Shown as clickable chips only on a blank conversation — once there's history the
+// person already knows how to ask, so the chips would just be clutter in the feed.
+const SUGGESTIONS = [
+  'Bugün ciro ne kadar?',
+  'En çok satan 5 ürün ne?',
+  'Hangi masalar boş?',
+  'Son 7 günün satış raporu',
+]
 
 function scrollToBottom() {
   requestAnimationFrame(() => {
@@ -22,8 +37,7 @@ function scrollToBottom() {
   })
 }
 
-async function send() {
-  const text = draft.value.trim()
+async function send(text = draft.value.trim()) {
   if (!text || sending.value) return
   draft.value = ''
   sending.value = true
@@ -32,7 +46,13 @@ async function send() {
   // reactive(), not a plain object: we mutate assistantMsg.* after pushing it into
   // messages (as each SSE event arrives), and Vue only tracks mutations made through the
   // reactive proxy — mutating the plain reference pushed into a ref([]) array is inert.
-  const assistantMsg = reactive<Message>({ role: 'assistant', content: '', tools: [] })
+  const assistantMsg = reactive<Message>({
+    role: 'assistant',
+    content: '',
+    tools: [],
+    charts: [],
+    tables: [],
+  })
   messages.value.push(assistantMsg)
   scrollToBottom()
 
@@ -61,6 +81,14 @@ async function send() {
       }
       scrollToBottom()
     },
+    onChart(tool, spec) {
+      assistantMsg.charts!.push({ tool, spec: spec as unknown as ChartSpec })
+      scrollToBottom()
+    },
+    onTable(tool, table) {
+      assistantMsg.tables!.push({ tool, table: table as unknown as TableSpec })
+      scrollToBottom()
+    },
     onToken(text) {
       assistantMsg.content += text
       scrollToBottom()
@@ -71,150 +99,94 @@ async function send() {
     },
     onDone() {
       sending.value = false
+      // The textarea was disabled while sending — a disabled element can't hold focus,
+      // so only re-focus it now that it's enabled again, not the moment the turn starts.
+      focusComposer()
     },
   })
 }
 </script>
 
 <template>
-  <div class="shell">
-    <header>
-      <div class="brand">
-        <span class="led" :class="{ off: !health }" />
-        <span class="name">restaurant-chat-console</span>
-      </div>
-      <div class="status">
-        <span>{{ health ? 'online' : 'offline' }}</span>
-        <span class="version" v-if="health">v{{ health.version }}</span>
-      </div>
-    </header>
+  <UApp>
+    <div class="flex h-dvh flex-col bg-neutral-50 dark:bg-neutral-950">
+      <header
+        class="flex shrink-0 items-center justify-between border-b border-neutral-200 bg-white px-5 py-3.5 dark:border-neutral-800 dark:bg-neutral-900"
+      >
+        <div class="flex items-center gap-2.5">
+          <span
+            class="size-2.5 rounded-full shadow-[0_0_8px]"
+            :class="health ? 'bg-success-500 shadow-success-500/60' : 'bg-error-500 shadow-error-500/60'"
+          />
+          <span class="font-semibold tracking-tight text-neutral-900 dark:text-white">
+            restaurant-chat-console
+          </span>
+        </div>
+        <div class="flex items-center gap-3">
+          <div class="flex items-baseline gap-2 text-xs text-neutral-400">
+            <span>{{ health ? 'online' : 'offline' }}</span>
+            <span v-if="health">v{{ health.version }}</span>
+          </div>
+          <UColorModeButton size="sm" />
+        </div>
+      </header>
 
-    <main ref="listEl" class="feed">
-      <p v-if="!messages.length" class="hint">
-        Satış, stok ya da sipariş sor — örn. "en çok satan 5 ürün ne?"
-      </p>
-      <ChatMessage v-for="(m, i) in messages" :key="i" :message="m" />
-    </main>
+      <main
+        ref="listEl"
+        class="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-3 overflow-y-auto px-5"
+        :class="messages.length ? 'py-6' : ''"
+      >
+        <!-- Blank conversation: greeting, suggestions and the composer all live together
+             in the middle of the screen — there's nothing to scroll to yet. -->
+        <div v-if="!messages.length" class="m-auto flex w-full max-w-xl flex-col items-center gap-6 py-10 text-center">
+          <div
+            class="size-14 rounded-full bg-gradient-to-br from-primary-400 via-primary-500 to-secondary-400 shadow-lg shadow-primary-500/30"
+          />
+          <div>
+            <p class="text-xl font-semibold tracking-tight text-neutral-900 dark:text-white">
+              Bugün nasıl yardımcı olabilirim?
+            </p>
+            <p class="mt-1.5 text-sm leading-relaxed text-neutral-400">
+              Satış, stok ya da sipariş sor — aşağıdan örnek bir soru seç ya da kendin yaz.
+            </p>
+          </div>
+          <ChatComposer
+            ref="composerEl"
+            v-model="draft"
+            :disabled="sending"
+            class="w-full"
+            @submit="send()"
+          />
+          <div class="flex flex-wrap justify-center gap-2">
+            <UButton
+              v-for="q in SUGGESTIONS"
+              :key="q"
+              :label="q"
+              color="neutral"
+              variant="soft"
+              size="sm"
+              class="rounded-full"
+              @click="send(q)"
+            />
+          </div>
+        </div>
+        <ChatMessage v-for="(m, i) in messages" :key="i" :message="m" />
+      </main>
 
-    <form class="composer" @submit.prevent="send">
-      <input
-        v-model="draft"
-        type="text"
-        placeholder="Yazın…"
-        :disabled="sending"
-        autofocus
-      />
-      <button type="submit" :disabled="sending || !draft.trim()">Gönder</button>
-    </form>
-  </div>
+      <!-- Once there's history, the same composer relocates to a docked bar at the
+           bottom — same card, same props, just a different home. -->
+      <div
+        v-if="messages.length"
+        class="shrink-0 border-t border-neutral-200 bg-white px-5 py-4 dark:border-neutral-800 dark:bg-neutral-900"
+      >
+        <ChatComposer
+          ref="composerEl"
+          v-model="draft"
+          :disabled="sending"
+          class="mx-auto w-full max-w-2xl"
+          @submit="send()"
+        />
+      </div>
+    </div>
+  </UApp>
 </template>
-
-<style scoped>
-.shell {
-  display: flex;
-  flex-direction: column;
-  height: 100dvh;
-}
-
-header {
-  flex: none;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0.85rem 1.25rem;
-  background: var(--bg-raised);
-  border-bottom: 1px solid var(--line-dark);
-}
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-}
-.led {
-  width: 0.55rem;
-  height: 0.55rem;
-  border-radius: 50%;
-  background: var(--sage);
-  box-shadow: 0 0 0.4rem var(--sage);
-}
-.led.off {
-  background: var(--brick);
-  box-shadow: 0 0 0.4rem var(--brick);
-}
-.name {
-  font-weight: 600;
-  letter-spacing: -0.01em;
-}
-.status {
-  display: flex;
-  align-items: baseline;
-  gap: 0.5rem;
-  font-size: 0.78rem;
-  color: var(--cream-soft);
-}
-.version {
-  opacity: 0.6;
-}
-
-.feed {
-  flex: 1;
-  overflow-y: auto;
-  padding: 1.5rem 1.25rem;
-  display: flex;
-  flex-direction: column;
-  max-width: 42rem;
-  width: 100%;
-  margin: 0 auto;
-}
-.hint {
-  color: var(--cream-soft);
-  text-align: center;
-  margin: auto 0;
-  max-width: 24rem;
-  align-self: center;
-  line-height: 1.5;
-}
-
-.composer {
-  flex: none;
-  display: flex;
-  gap: 0.6rem;
-  padding: 1rem 1.25rem;
-  background: var(--bg-raised);
-  border-top: 1px solid var(--line-dark);
-  max-width: 42rem;
-  width: 100%;
-  margin: 0 auto;
-}
-.composer input {
-  flex: 1;
-  padding: 0.65rem 0.9rem;
-  border: 1px solid var(--line-dark);
-  border-radius: 0.5rem;
-  background: var(--bg);
-  color: var(--cream);
-  font-size: 0.95rem;
-  font-family: inherit;
-}
-.composer input::placeholder {
-  color: var(--cream-soft);
-}
-.composer button {
-  padding: 0.65rem 1.3rem;
-  border: none;
-  border-radius: 0.5rem;
-  background: var(--flame);
-  color: #241a0f;
-  font-weight: 600;
-  font-size: 0.95rem;
-  cursor: pointer;
-}
-.composer button:hover:not(:disabled) {
-  background: var(--flame-deep);
-}
-.composer button:disabled {
-  background: var(--bg);
-  color: var(--cream-soft);
-  cursor: default;
-}
-</style>

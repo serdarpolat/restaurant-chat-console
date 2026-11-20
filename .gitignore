@@ -1,0 +1,16 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Node / Nuxt
+node_modules/
+.nuxt/
+.output/
+.data/
+
+# OS / editor
+.DS_Store

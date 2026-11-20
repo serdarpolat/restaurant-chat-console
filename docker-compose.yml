@@ -1,0 +1,66 @@
+# docker compose up
+#   Chat UI         : http://localhost:3000
+#   Backend + /health: http://localhost:8000
+# WARNING: demo only. No authentication anywhere in this stack (console, backend, or the
+# restaurant-mcp-server it talks to) — do not expose these ports beyond localhost.
+#
+# restaurant-mcp-server is never vendored or modified here: pos-api/pos-mcp are built
+# straight from its repo, pinned to one commit, same pattern restaurant-ai-analyst (Proje 5)
+# uses for its data dependency.
+services:
+  pos-api:
+    build:
+      context: https://github.com/serdarpolat/restaurant-mcp-server.git#19cf50a71c182919b20b8c387250e7d9e13a26f5
+    volumes:
+      - pos-data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 30s
+
+  pos-mcp:
+    build:
+      context: https://github.com/serdarpolat/restaurant-mcp-server.git#19cf50a71c182919b20b8c387250e7d9e13a26f5
+    command: ["restaurant-pos-mcp", "--http", "--host", "0.0.0.0", "--port", "8001"]
+    environment:
+      POS_API_URL: http://pos-api:8000
+    depends_on:
+      pos-api:
+        condition: service_healthy
+
+  backend:
+    build: ./backend
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      MCP_SERVER_URL: http://pos-mcp:8001/mcp
+      # LM Studio runs on the host machine, not in this compose stack.
+      LLM_BASE_URL: http://host.docker.internal:1234/v1
+      CORS_ORIGINS: http://localhost:3000
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 15s
+    depends_on:
+      pos-mcp:
+        condition: service_started
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      # Browser-reachable backend URL (used both for SSR and client-side fetches).
+      API_BASE_URL: http://localhost:8000
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  pos-data:

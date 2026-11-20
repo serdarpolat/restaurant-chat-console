@@ -1,26 +1,10 @@
-/* Design tokens — a kitchen-display console, not a generic chat widget: dark char-black
-   shell (real POS/KDS screens run dark for glare under kitchen lighting), assistant turns
-   read like order tickets (cream, perforated edge, monospace line items for tool calls),
-   one warm ember accent used sparingly. See PROJECT6_SCOPE.md for the product this skins. */
-:root {
-  --bg: #17120f;
-  --bg-raised: #221a16;
-  --paper: #f7ecdc;
-  --ink: #2b211a;
-  --ink-soft: #6b5c4d;
-  --cream: #ede3d6;
-  --cream-soft: #a89a89;
-  --flame: #e08d3c;
-  --flame-deep: #c8602e;
-  --sage: #7a9471;
-  --brick: #c1443a;
-  --line-dark: rgba(237, 227, 214, 0.12);
-  --line-paper: rgba(43, 33, 26, 0.14);
+@import "tailwindcss";
+@import "@nuxt/ui";
 
-  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
-  --font-mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Consolas, monospace;
-}
-
+/* App-shell basics Nuxt UI doesn't set for us: a Nuxt UI theme governs component colors,
+   but the page shell (height, the default margin browsers put on <body>) is still ours —
+   left alone, that default margin plus a 100dvh shell is exactly what produced the
+   earlier scrollbar bug. */
 *,
 *::before,
 *::after {
@@ -35,22 +19,5 @@ body,
 }
 
 body {
-  background: var(--bg);
-  color: var(--cream);
-  font-family: var(--font-ui);
   -webkit-font-smoothing: antialiased;
-}
-
-:focus-visible {
-  outline: 2px solid var(--flame);
-  outline-offset: 2px;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    transition-duration: 0.01ms !important;
-  }
 }

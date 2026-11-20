@@ -38,6 +38,9 @@ _HISTORY: dict[str, list[dict[str, str]]] = defaultdict(list)
 
 EVAL_PROTOCOL = (
     "You assist the restaurant staff through a chat UI. Answer in the user's language.\n"
+    "Once a tool result comes back, it is already in hand — write the real answer using\n"
+    "that data right away in the same turn. Never end with a placeholder like 'please\n"
+    "wait' or 'fetching the data', and never promise an answer you have not given yet.\n"
 )
 
 
